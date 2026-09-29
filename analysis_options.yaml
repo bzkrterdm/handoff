@@ -1,0 +1,131 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  # dart_code_linter runs as a CLI (`dart run dart_code_linter:metrics analyze
+  # lib`), not as a legacy analyzer plugin: those are deprecated and their
+  # warning fails `flutter analyze`. The layer rules it checks are also
+  # enforced by test/architecture_test.dart.
+  language:
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    dead_code: error
+    missing_return: error
+    illegal_character: error
+    unused_element: warning
+    unused_import: warning
+    invalid_override_of_non_virtual_member: error
+    must_be_immutable: ignore
+  exclude:
+    - "**/*.g.dart"
+    - "build/**"
+    - "third_party/**"
+    - macos/**
+
+dart_code_linter:
+  rules:
+    - avoid-global-state:
+        exclude:
+          - test/**
+          - third_party/**
+    - avoid-redundant-async
+    - avoid-unnecessary-conditionals
+    - no-boolean-literal-compare
+    - prefer-async-await
+    - prefer-conditional-expressions
+    - prefer-immediate-return
+    - prefer-match-file-name:
+        exclude:
+          - '**/*.step*.dart'
+          - test/**
+          - third_party/**
+    - use-setstate-synchronously
+    - member-ordering:
+        order:
+          - constructors
+          - private-constructors
+          - static-fields
+          - final-fields
+          - late-fields
+          - public-fields
+          - named-constructors
+          - private-methods
+        widgets-order:
+          - constructor
+          - fields
+          - init-state-method
+          - did-update-widget-method
+          - did-change-dependencies-method
+          - overridden-public-methods
+          - build-method
+          - dispose-method
+          - private-methods
+    - avoid-banned-imports:
+        severity: error
+        entries:
+          - paths: ['lib/.*/domain/.*/.*\.dart']
+            deny: ['package:flutter/.*\.dart']
+            message: "Flutter libraries should not be referenced in domain layer."
+          - paths: ['lib/.*/domain/.*/.*\.dart']
+            deny: ['.*\/data/.*\.dart', '.*\/presentation/.*\.dart']
+            message: "Data and presentation layers should not be referenced in domain layer."
+          - paths: ['lib/.*/presentation/.*/.*\.dart']
+            deny: ['.*\/data/.*\.dart']
+            message: "Data layer should not be referenced in presentation layer."
+          - paths: ['lib/.*/data/.*/.*\.dart']
+            deny: ['.*\/presentation/.*\.dart']
+            message: "Presentation layer should not be referenced in data layer."
+    - prefer-correct-identifier-length:
+        exceptions: ["i", "j", "k"]
+        min-identifier-length: 2
+    - prefer-static-class:
+        exclude:
+          - test/**
+          - third_party/**
+        ignore-names:
+          - (.*)Provider
+          - use(.*)
+    - prefer-extracting-callbacks:
+        allowed-line-count: 5
+
+linter:
+  rules:
+    directives_ordering: true
+    eol_at_end_of_file: true
+    flutter_style_todos: true
+    lines_longer_than_80_chars: true
+    missing_whitespace_between_adjacent_strings: true
+    omit_local_variable_types: true
+    only_throw_errors: true
+    overridden_fields: true
+    prefer_asserts_with_message: true
+    prefer_final_in_for_each: true
+    prefer_final_locals: true
+    prefer_int_literals: true
+    prefer_null_aware_method_calls: true
+    prefer_relative_imports: true
+    prefer_single_quotes: true
+    require_trailing_commas: true
+    sized_box_shrink_expand: true
+    slash_for_doc_comments: true
+    test_types_in_equals: true
+    type_annotate_public_apis: true
+    throw_in_finally: true
+    unnecessary_await_in_return: true
+    unnecessary_parenthesis: true
+    unnecessary_raw_strings: true
+    use_colored_box: true
+    use_decorated_box: true
+    use_named_constants: true
+    use_raw_strings: true
+    use_string_buffers: true
+    use_super_parameters: true
+    prefer_const_constructors_in_immutables: true
+    type_literal_in_constant_pattern: true
+    unnecessary_lambdas: true
+# Additional information about this file can be found at
+# https://dart.dev/guides/language/analysis-options
+#
+# See also:
+# Analyzer messages: https://dart.dev/tools/diagnostic-messages
+# Linter rules: https://dart.dev/tools/linter-rules

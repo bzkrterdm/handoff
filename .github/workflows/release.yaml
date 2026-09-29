@@ -1,0 +1,38 @@
+name: release
+
+# Builds the macOS app for a version tag and attaches it to the GitHub
+# release. The app is not code signed: on first launch, right-click it and
+# choose Open, or clear the quarantine flag (see the README).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: build & attach Handoff.app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter build macos --release -t lib/main_prod.dart
+
+      - name: Zip the app
+        run: |
+          cd build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent Handoff.app "Handoff-${GITHUB_REF_NAME}-macos.zip"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: build/macos/Build/Products/Release/Handoff-*.zip
+          generate_release_notes: true

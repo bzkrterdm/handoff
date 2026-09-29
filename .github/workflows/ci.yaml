@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    name: analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Formatting, static analysis and tests are the whole gate: the app is
+      # never built here, on purpose.
+      - run: dart format --set-exit-if-changed .
+
+      - run: flutter analyze
+
+      - run: flutter test
