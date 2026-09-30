@@ -19,6 +19,11 @@ class WatchTasks extends StreamUseCase<void, TaskSnapshot, void> {
   StreamController<Result<TaskSnapshot, Failure>>? _controller;
   StreamSubscription<void>? _changes;
 
+  /// Numbers the loads: a slow load that finishes after a newer one started
+  /// (the old folder still reading when another was chosen) is dropped, or it
+  /// would put the old folder's tasks on screen over the new folder's.
+  int _loads = 0;
+
   @override
   Stream<Result<TaskSnapshot, Failure>> call({void params}) {
     final controller = StreamController<Result<TaskSnapshot, Failure>>(
@@ -46,10 +51,11 @@ class WatchTasks extends StreamUseCase<void, TaskSnapshot, void> {
   }
 
   Future<void> _reload() async {
+    final controller = _controller;
+    final load = ++_loads;
     final workspace = await _repository.getWorkspace();
     final tasks = await _repository.getAll();
-    final controller = _controller;
-    if (controller == null || controller.isClosed) return;
+    if (controller == null || controller.isClosed || load != _loads) return;
 
     controller.add(switch ((workspace, tasks)) {
       (Success(value: final location), Success(value: final list)) =>
