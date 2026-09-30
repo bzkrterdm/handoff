@@ -27,6 +27,20 @@ abstract class TaskMarkdownParser {
   static final RegExp _heading = RegExp(r'^##\s+(.+?)\s*$');
   static final RegExp _checkbox = RegExp(r'^(\s*[-*]\s+\[)( |x|X)(\]\s?)(.*)$');
 
+  /// Whether [content] is a task written by this protocol rather than any
+  /// markdown note: a front matter with a `status` and an `agent` or
+  /// `created` line. Used to recognise a folder that already holds tasks.
+  static bool isTask(String content) {
+    final lines = content.split('\n');
+    final end = _frontMatterEnd(lines);
+    if (end == null) return false;
+
+    final header = _readFrontMatter(lines.sublist(1, end));
+
+    return header.containsKey(statusKey) &&
+        (header.containsKey('agent') || header.containsKey('created'));
+  }
+
   /// Parses [content]; [id] and [fallbackProject] come from the file's place
   /// on disk and are used when the front matter lacks them.
   static TaskModel parse(

@@ -30,6 +30,8 @@ class TaskRepositoryImpl implements TaskRepository {
       await _dataSource.setLocation(location);
 
       return Result.success(value: location);
+    } on FileSystemException catch (error) {
+      return Result.failure(Failure(message: _describeAccess(error)));
     } on Exception catch (error) {
       return Result.failure(Failure(message: error.toString()));
     }
@@ -46,9 +48,7 @@ class TaskRepositoryImpl implements TaskRepository {
 
       return Result.success(value: tasks);
     } on FileSystemException catch (error) {
-      return Result.failure(
-        Failure(message: '${error.message}: ${error.path}'),
-      );
+      return Result.failure(Failure(message: _describeAccess(error)));
     } on Exception catch (error) {
       return Result.failure(Failure(message: error.toString()));
     }
@@ -77,6 +77,20 @@ class TaskRepositoryImpl implements TaskRepository {
   }
 
   // Helpers
+  /// EPERM / EACCES on a picked folder is macOS privacy protection (Desktop,
+  /// Documents, Downloads, external volumes) rather than a broken path, so
+  /// say where to grant the access.
+  String _describeAccess(FileSystemException error) {
+    final code = error.osError?.errorCode;
+    final where = error.path == null ? '' : ': ${error.path}';
+    final base = '${error.message}$where';
+    if (code != 1 && code != 13) return base;
+
+    return '$base\nmacOS blocked access to this folder. Allow Handoff under '
+        'System Settings > Privacy & Security > Files and Folders (or Full '
+        'Disk Access), then choose the folder again.';
+  }
+
   Future<Result<HandoffTask, Failure>> _guard(
     Future<TaskModel> Function() write,
   ) async {

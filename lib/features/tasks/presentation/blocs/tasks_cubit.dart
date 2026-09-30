@@ -65,6 +65,11 @@ class TasksCubit extends SafeCubit<TasksState> with UseCaseCancelMixin {
         final current = state;
         if (current is TasksLoaded) {
           emit(current.copyWith(lastError: () => error.message));
+        } else {
+          // First start or an already failed folder: there is no list to
+          // toast over, so show the error page for the folder that was
+          // just picked instead of swallowing the failure.
+          emit(TasksError(message: error.message, workspace: path));
         }
     }
   }
