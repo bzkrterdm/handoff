@@ -194,11 +194,25 @@ void main() {
       );
     });
 
-    test('keeps a folder that already holds markdown files', () async {
-      await _write(ws, 'api/one.md', '# one\n');
+    test('keeps a folder that already holds task files', () async {
+      await _write(ws, 'api/one.md', sampleTaskFile);
 
       expect(MarkdownTaskDataSource.resolveTasksDirectory(ws.path), ws.path);
     });
+
+    test(
+      'does not mistake a folder of plain notes for a task folder',
+      () async {
+        await _write(ws, 'docs/guide.md', '# a guide\n');
+        await _write(ws, 'notes/todo.md', '# todo\n\n- [ ] something\n');
+        await _write(ws, 'node_modules/pkg/task.md', sampleTaskFile);
+
+        expect(
+          MarkdownTaskDataSource.resolveTasksDirectory(ws.path),
+          '${ws.path}/.handoff/tasks',
+        );
+      },
+    );
 
     test('gives a fresh workspace .handoff/tasks and creates it', () async {
       await Directory('${ws.path}/api/src').create(recursive: true);

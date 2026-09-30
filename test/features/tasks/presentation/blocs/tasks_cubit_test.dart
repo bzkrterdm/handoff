@@ -192,6 +192,32 @@ void main() {
       ],
       verify: (_) => verify(() => repository.setWorkspace('/other')).called(1),
     );
+
+    blocTest<TasksCubit, TasksState>(
+      'a folder that cannot be used shows the error on the first start',
+      build: () {
+        when(
+          repository.getWorkspace,
+        ).thenAnswer((_) async => Result.success(value: ''));
+        when(repository.getAll).thenAnswer(
+          (_) async => Result.failure(const Failure(message: 'No folder')),
+        );
+        when(() => repository.setWorkspace('/blocked')).thenAnswer(
+          (_) async => Result.failure(const Failure(message: 'not permitted')),
+        );
+
+        return build();
+      },
+      act: (cubit) async {
+        await cubit.start();
+        await Future<void>.delayed(Duration.zero);
+        await cubit.changeWorkspace('/blocked');
+      },
+      skip: 2,
+      expect: () => [
+        const TasksError(message: 'not permitted', workspace: '/blocked'),
+      ],
+    );
   });
 
   group('writes', () {

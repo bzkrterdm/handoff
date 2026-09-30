@@ -23,6 +23,9 @@ class MarkdownTaskDataSource implements TaskDataSource {
   /// Files that are not tasks even though they sit in the folder.
   static const Set<String> _ignoredNames = {'readme.md', 'index.md'};
 
+  /// How many folder levels below a picked folder are searched for tasks.
+  static const int _probeDepth = 4;
+
   /// Quiet period after the last file event before listeners are told, so a
   /// burst of writes (editor save, agent writing two files) reloads once.
   static const Duration _debounce = Duration(milliseconds: 250);
@@ -229,26 +232,52 @@ class MarkdownTaskDataSource implements TaskDataSource {
   /// The task folder for a folder the user picked, which may be a workspace
   /// root or the task folder itself: a known task folder name, or a folder
   /// that already has a task folder below it, or a folder that already holds
-  /// markdown files, is taken as is; any other folder is a fresh workspace
-  /// and gets `.handoff/tasks` (created by [setLocation]).
+  /// task files (front matter, not just any `.md`), is taken as is; any other
+  /// folder is a fresh workspace and gets `.handoff/tasks` (created by
+  /// [setLocation]).
   static String resolveTasksDirectory(String picked) {
     final path = WorkspaceLayout.trimSlash(picked);
     if (taskFolderNames.any((name) => path.endsWith('/$name'))) return path;
     for (final name in taskFolderNames) {
       if (Directory('$path/$name').existsSync()) return '$path/$name';
     }
-    if (_holdsMarkdown(Directory(path))) return path;
+    if (_holdsTasks(Directory(path))) return path;
 
     return '$path/${taskFolderNames.first}';
   }
 
-  static bool _holdsMarkdown(Directory directory) {
-    if (!directory.existsSync()) return false;
+  /// Whether [directory] already holds at least one real task file. A plain
+  /// `.md` does not count: a code repository or notes folder is full of them
+  /// and none is a task. The walk skips hidden, `_` and dependency folders
+  /// and stops below [_probeDepth], so picking a big folder stays cheap.
+  static bool _holdsTasks(Directory directory, [int depth = 0]) {
+    if (depth > _probeDepth) return false;
 
-    return directory
-        .listSync(recursive: true, followLinks: false)
-        .whereType<File>()
-        .any((file) => file.path.toLowerCase().endsWith('.md'));
+    try {
+      for (final entity in directory.listSync(followLinks: false)) {
+        final name = entity.uri.pathSegments.lastWhere(
+          (segment) => segment.isNotEmpty,
+          orElse: () => '',
+        );
+        if (name.startsWith('.') ||
+            name.startsWith('_') ||
+            name == 'node_modules') {
+          continue;
+        }
+        if (entity is Directory) {
+          if (_holdsTasks(entity, depth + 1)) return true;
+        } else if (entity is File &&
+            name.toLowerCase().endsWith('.md') &&
+            !_ignoredNames.contains(name.toLowerCase()) &&
+            TaskMarkdownParser.isTask(entity.readAsStringSync())) {
+          return true;
+        }
+      }
+    } on Exception {
+      // An unreadable folder or file is not a task folder.
+    }
+
+    return false;
   }
 
   bool _isTaskFile(Directory root, File file) {
