@@ -8,11 +8,15 @@ import 'package:handoff/stack/core/logging/logger.dart';
 import '../../../../fixtures/task_fixtures.dart';
 
 void main() {
+  late Directory parent;
   late Directory root;
   late MarkdownTaskDataSource source;
 
   setUp(() async {
-    root = await Directory.systemTemp.createTemp('handoff_tasks_');
+    parent = await Directory.systemTemp.createTemp('handoff_tasks_');
+    root = await Directory(
+      '${parent.path}/.handoff/tasks',
+    ).create(recursive: true);
     source = MarkdownTaskDataSource(_MemorySettings(), root.path, LoggerImpl());
     await _write(root, 'README.md', '# not a task');
     await _write(root, '_templates/task.md', '# template, not a task');
@@ -31,7 +35,7 @@ void main() {
 
   tearDown(() async {
     await source.dispose();
-    await root.delete(recursive: true);
+    await parent.delete(recursive: true);
   });
 
   test(
@@ -52,6 +56,76 @@ void main() {
         byId['20260929-1500-api-hiz-siniri']!.location,
         endsWith('/acme/api/20260929-1500-api-hiz-siniri.md'),
       );
+    },
+  );
+
+  group('outside a task folder', () {
+    late Directory raw;
+    late MarkdownTaskDataSource rawSource;
+
+    setUp(() async {
+      // A folder picked by an older version: a repository, not `.handoff/tasks`.
+      raw = await Directory.systemTemp.createTemp('handoff_raw_');
+      await _write(raw, 'api/docs/guide.md', '# guide\n');
+      await _write(raw, 'api/CHANGELOG.md', '# changes\n');
+      await _write(raw, 'api/real.md', sampleTaskFile);
+      await _write(raw, 'web/node_modules/pkg/task.md', sampleTaskFile);
+      await _write(raw, 'web/build/out/task.md', sampleTaskFile);
+      await _write(raw, 'web/.git/notes.md', sampleTaskFile);
+      rawSource = MarkdownTaskDataSource(
+        _MemorySettings(),
+        raw.path,
+        LoggerImpl(),
+      );
+    });
+
+    tearDown(() async {
+      await rawSource.dispose();
+      await raw.delete(recursive: true);
+    });
+
+    test('only files with task front matter are tasks', () async {
+      final models = await rawSource.readAll();
+
+      expect(models.map((m) => m.id), ['20260929-1500-api-hiz-siniri']);
+    });
+  });
+
+  test('does not read below the depth limit or into skipped folders', () async {
+    await _write(root, 'a/b/c/d/e/f/g/h/i/deep.md', '# too deep\n');
+    await _write(root, 'node_modules/pkg/dep.md', '# a dependency\n');
+
+    final ids = (await source.readAll()).map((m) => m.id);
+
+    expect(ids, isNot(contains('deep')));
+    expect(ids, isNot(contains('dep')));
+  });
+
+  test(
+    'picking one project folder after its parent shows only that one',
+    () async {
+      // A holds B and C, both repositories full of markdown; only B has tasks.
+      final a = await Directory.systemTemp.createTemp('handoff_a_');
+      addTearDown(() => a.delete(recursive: true));
+      for (final project in ['b', 'c']) {
+        await _write(a, '$project/README.md', '# readme\n');
+        await _write(a, '$project/docs/guide.md', '# guide\n');
+        await _write(a, '$project/node_modules/x/readme.md', '# dep\n');
+      }
+      await _write(a, 'b/.handoff/tasks/b/mine.md', sampleTaskFile);
+      final settings = _MemorySettings();
+      final picking = MarkdownTaskDataSource(settings, '', LoggerImpl());
+      addTearDown(picking.dispose);
+
+      await picking.setLocation(a.path);
+      expect(settings.path, '${a.path}/.handoff/tasks');
+      expect(await picking.readAll(), isEmpty);
+
+      await picking.setLocation('${a.path}/b');
+      expect(settings.path, '${a.path}/b/.handoff/tasks');
+      expect((await picking.readAll()).map((m) => m.id), [
+        '20260929-1500-api-hiz-siniri',
+      ]);
     },
   );
 
@@ -135,8 +209,9 @@ void main() {
   });
 
   test('a saved location wins over the default and can be changed', () async {
-    final other = await Directory.systemTemp.createTemp('handoff_other_');
-    addTearDown(() => other.delete(recursive: true));
+    final otherParent = await Directory.systemTemp.createTemp('handoff_other_');
+    addTearDown(() => otherParent.delete(recursive: true));
+    final other = Directory('${otherParent.path}/.handoff/tasks');
     await _write(other, 'p/only.md', '# only\n');
     final settings = _MemorySettings()..path = other.path;
     final switching = MarkdownTaskDataSource(settings, root.path, LoggerImpl());

@@ -23,6 +23,20 @@ class MarkdownTaskDataSource implements TaskDataSource {
   /// Files that are not tasks even though they sit in the folder.
   static const Set<String> _ignoredNames = {'readme.md', 'index.md'};
 
+  /// Dependency and build output folders: full of markdown, never tasks.
+  static const Set<String> _skippedDirectories = {
+    'node_modules',
+    'build',
+    'dist',
+    'vendor',
+    'Pods',
+    'target',
+    'venv',
+  };
+
+  /// How many folder levels [readAll] descends below the task folder.
+  static const int _readDepth = 8;
+
   /// How many folder levels below a picked folder are searched for tasks.
   static const int _probeDepth = 4;
 
@@ -36,6 +50,10 @@ class MarkdownTaskDataSource implements TaskDataSource {
 
   /// Task id → absolute file path, filled by [readAll].
   final Map<String, String> _paths = {};
+
+  /// Numbers the reads, so a slow read of a folder that has since been
+  /// replaced cannot overwrite [_paths] with the old folder's files.
+  int _reads = 0;
 
   StreamController<void>? _changes;
   StreamSubscription<WatchEvent>? _watch;
@@ -70,23 +88,30 @@ class MarkdownTaskDataSource implements TaskDataSource {
       await _restartWatcher(directory);
     }
 
+    // Inside `.handoff/tasks` / `_hub/tasks` every markdown file is a task.
+    // Anywhere else (a folder that was picked before task folders existed) a
+    // file must carry task front matter, or a repository's docs would show up
+    // as tasks.
+    final strict = !_isTaskFolder(directory);
+    final read = ++_reads;
     final models = <TaskModel>[];
-    _paths.clear();
-    await for (final entity in root.list(recursive: true)) {
-      if (entity is! File || !_isTaskFile(root, entity)) continue;
-
+    final paths = <String, String>{};
+    for (final entity in await _markdownFiles(root)) {
       final id = _idOf(entity);
       try {
+        final content = await entity.readAsString();
+        if (strict && !TaskMarkdownParser.isTask(content)) continue;
+
         final model = _resolveCwd(
           root,
           TaskMarkdownParser.parse(
-            await entity.readAsString(),
+            content,
             id: id,
             fallbackProject: _projectOf(root, entity),
             location: entity.path,
           ),
         );
-        _paths[model.id] = entity.path;
+        paths[model.id] = entity.path;
         models.add(model);
       } on Exception catch (error) {
         // A malformed file is skipped rather than hiding every other task.
@@ -95,6 +120,11 @@ class MarkdownTaskDataSource implements TaskDataSource {
           callerType: runtimeType,
         );
       }
+    }
+    if (read == _reads) {
+      _paths
+        ..clear()
+        ..addAll(paths);
     }
 
     return models;
@@ -237,7 +267,7 @@ class MarkdownTaskDataSource implements TaskDataSource {
   /// [setLocation]).
   static String resolveTasksDirectory(String picked) {
     final path = WorkspaceLayout.trimSlash(picked);
-    if (taskFolderNames.any((name) => path.endsWith('/$name'))) return path;
+    if (_isTaskFolder(path)) return path;
     for (final name in taskFolderNames) {
       if (Directory('$path/$name').existsSync()) return '$path/$name';
     }
@@ -255,15 +285,8 @@ class MarkdownTaskDataSource implements TaskDataSource {
 
     try {
       for (final entity in directory.listSync(followLinks: false)) {
-        final name = entity.uri.pathSegments.lastWhere(
-          (segment) => segment.isNotEmpty,
-          orElse: () => '',
-        );
-        if (name.startsWith('.') ||
-            name.startsWith('_') ||
-            name == 'node_modules') {
-          continue;
-        }
+        final name = _nameOf(entity);
+        if (_isSkippedDirectory(name)) continue;
         if (entity is Directory) {
           if (_holdsTasks(entity, depth + 1)) return true;
         } else if (entity is File &&
@@ -278,6 +301,57 @@ class MarkdownTaskDataSource implements TaskDataSource {
     }
 
     return false;
+  }
+
+  static bool _isTaskFolder(String path) {
+    final trimmed = WorkspaceLayout.trimSlash(path);
+
+    return taskFolderNames.any((name) => trimmed.endsWith('/$name'));
+  }
+
+  /// Hidden, `_` (templates, `.obsidian`) and dependency folders hold no
+  /// tasks; skipping them keeps a big folder from being walked for nothing.
+  static bool _isSkippedDirectory(String name) {
+    return name.startsWith('.') ||
+        name.startsWith('_') ||
+        _skippedDirectories.contains(name);
+  }
+
+  static String _nameOf(FileSystemEntity entity) {
+    return entity.uri.pathSegments.lastWhere(
+      (segment) => segment.isNotEmpty,
+      orElse: () => '',
+    );
+  }
+
+  /// Every markdown file below [root] that could be a task, found without
+  /// entering skipped folders. An unreadable sub folder is skipped; an
+  /// unreadable [root] is an error the owner has to see.
+  Future<List<File>> _markdownFiles(Directory root) async {
+    final files = <File>[];
+    final pending = <(Directory, int)>[(root, 0)];
+    while (pending.isNotEmpty) {
+      final (directory, depth) = pending.removeLast();
+      try {
+        await for (final entity in directory.list()) {
+          if (entity is Directory) {
+            if (depth < _readDepth && !_isSkippedDirectory(_nameOf(entity))) {
+              pending.add((entity, depth + 1));
+            }
+          } else if (entity is File && _isTaskFile(root, entity)) {
+            files.add(entity);
+          }
+        }
+      } on FileSystemException catch (error) {
+        if (depth == 0) rethrow;
+        _logger.error(
+          'Skipping unreadable folder: ${directory.path} ($error)',
+          callerType: runtimeType,
+        );
+      }
+    }
+
+    return files;
   }
 
   bool _isTaskFile(Directory root, File file) {

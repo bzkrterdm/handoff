@@ -83,6 +83,16 @@ Results the owner asked for, numbers, warnings, links. May be empty.
 A malformed front matter line does not break the task: the app reads the
 header line by line and keeps what parses.
 
+### Which files are tasks
+
+- Inside `.handoff/tasks` (or `_hub/tasks`) every markdown file is a task,
+  except `README.md`, `index.md` and anything under a folder that starts with
+  `.` or `_`.
+- In any other folder a file is a task only if its front matter has `status`
+  and `agent` or `created`, so a repository's docs never show up as tasks.
+- `node_modules`, `build`, `dist`, `vendor`, `Pods`, `target` and `venv` are
+  never entered, and the app reads at most eight folder levels deep.
+
 ### Sections
 
 Three `##` sections. The canonical headings are English; the alternatives
