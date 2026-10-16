@@ -6,6 +6,10 @@ agent-facing format is in [`protocol.md`](protocol.md).
 
 ## Fields
 
+`TaskModel` lives in `packages/handoff_core` (`lib/src/task_model.dart`),
+shared by the desktop app and the terminal app; the desktop app maps it to
+its `HandoffTask` entity in `data/models/task_model_mapping.dart`.
+
 | `TaskModel` / column | Markdown | Type | Notes |
 |---|---|---|---|
 | `id` | front matter `id` (= file name) | text, PK | unique across projects |
@@ -56,6 +60,7 @@ file edit.
 ## Migration path
 
 1. Add `SupabaseTaskDataSource implements TaskDataSource` in
+   `packages/handoff_core` (so the terminal app gets it too) or in
    `lib/features/tasks/data/data_sources/` (`supabase_flutter`, client
    registered in the locator from `EnvConfig`). `changes` = realtime channel
    on the table.

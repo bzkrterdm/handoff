@@ -5,7 +5,11 @@ people. `CLAUDE.md` points here; keep this the single copy so the two cannot
 drift apart.
 
 Handoff is a macOS app with one feature, `tasks`, on top of a small
-clean-architecture stack in `lib/stack/` (base classes, data layer, DI,
+clean-architecture stack in `lib/stack/`, and a terminal app for macOS,
+Linux and Windows in `tui/`. Both read and write task files through
+`packages/handoff_core` (plain Dart): change the parser, the folder store,
+the workspace layout, the agent prompt or the agent command there, never in
+a copy (base classes, data layer, DI,
 routing, theming, localization). Most of the stack is the way it is on
 purpose; treat a change there as a design change, not a cleanup. The app's
 structure is in [docs/architecture.md](docs/architecture.md); the
@@ -29,6 +33,17 @@ flutter analyze     # must be clean — this is the bar
 flutter test        # when logic changed
 dart format .       # formatting
 ```
+
+For `packages/handoff_core` and `tui/` (plain Dart):
+
+```bash
+(cd packages/handoff_core && dart test)
+(cd tui && dart analyze && dart test)
+```
+
+The terminal app is the exception to rule 0: it compiles in seconds
+(`cd tui && dart compile exe bin/handoff.dart -o build/handoff`) and may be
+run to check a change.
 
 If a change genuinely cannot be validated without a build (native
 plist/entitlement edits, a new plugin with native code), say so and let the
@@ -104,6 +119,8 @@ lib/
 ├── main_base.dart    # mainBase(EnvConfig): locator -> l10n -> routes -> api
 ├── main_dev.dart     # Entry point per environment
 └── main_prod.dart
+packages/handoff_core/ # Task format, folder store, prompt — shared, plain Dart
+tui/                   # The terminal app (`handoff` binary)
 ```
 
 There is no `lib/main.dart`: run an entry point (`flutter run -t

@@ -29,7 +29,10 @@ abstract class DependencyConfig {
         () => MarkdownTaskDataSource(
           locator(),
           locator<EnvConfig>().tasksDirectory,
-          locator(),
+          (message) => locator<Logger>().error(
+            message,
+            callerType: MarkdownTaskDataSource,
+          ),
         ),
       )
       ..registerLazySingleton<TaskRepository>(

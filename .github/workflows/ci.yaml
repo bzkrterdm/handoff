@@ -20,10 +20,53 @@ jobs:
 
       - run: flutter pub get
 
-      # Formatting, static analysis and tests are the whole gate: the app is
-      # never built here, on purpose.
+      - run: dart pub get
+        working-directory: packages/handoff_core
+
+      - run: dart pub get
+        working-directory: tui
+
+      # Formatting, static analysis and tests are the whole gate: the desktop
+      # app is never built here, on purpose.
       - run: dart format --set-exit-if-changed .
 
       - run: flutter analyze
 
       - run: flutter test
+
+      - run: dart analyze --fatal-infos
+        working-directory: packages/handoff_core
+
+      - run: dart test
+        working-directory: packages/handoff_core
+
+  terminal:
+    # The terminal app is the cross-platform one: test it, and check that it
+    # compiles to a binary that starts, on every platform it ships for.
+    name: terminal app (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - run: dart pub get
+        working-directory: tui
+
+      - run: dart analyze --fatal-infos
+        working-directory: tui
+
+      - run: dart test
+        working-directory: tui
+
+      - run: dart compile exe bin/handoff.dart -o handoff-ci.exe
+        working-directory: tui
+
+      - run: ./handoff-ci.exe --version
+        working-directory: tui

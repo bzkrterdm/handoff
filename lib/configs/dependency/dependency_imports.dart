@@ -21,5 +21,6 @@ export '../../shared/domain/external_opener.dart';
 export '../../shared/domain/folder_picker.dart';
 export '../../shared/presentation/tasks/confirm_task.dart';
 export '../../stack/core/ioc/service_locator.dart';
+export '../../stack/core/logging/logger.dart';
 export '../../stack/core/theme/theme_manager.dart';
 export '../env/env_config.dart';

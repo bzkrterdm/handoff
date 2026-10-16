@@ -6,12 +6,14 @@
 
 <p align="center">
   <b>From agents to you.</b><br>
-  A macOS inbox for the tasks your coding agents leave behind.
+  An inbox for the tasks your coding agents leave behind:<br>
+  a macOS app, and the same inbox in the terminal on macOS, Linux and Windows.
 </p>
 
 <p align="center">
   <a href="https://github.com/bzkrterdm/handoff/actions/workflows/ci.yaml"><img src="https://github.com/bzkrterdm/handoff/actions/workflows/ci.yaml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/platform-macOS-111" alt="macOS">
+  <img src="https://img.shields.io/badge/app-macOS-111" alt="macOS app">
+  <img src="https://img.shields.io/badge/terminal-macOS%20%7C%20Linux%20%7C%20Windows-111" alt="Terminal app: macOS, Linux, Windows">
   <img src="https://img.shields.io/badge/built%20with-Flutter-02569B" alt="Flutter">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
 </p>
@@ -26,6 +28,8 @@
    [Releases](https://github.com/bzkrterdm/handoff/releases), unzip, drop
    `Handoff.app` into Applications. It is not notarised yet, so open it once
    with right-click → *Open* (or `xattr -d com.apple.quarantine /Applications/Handoff.app`).
+   On Linux or Windows, or if you live in a terminal, take the `handoff`
+   binary for your platform instead ([In the terminal](#in-the-terminal)).
 2. **Pick your workspace.** On first start Handoff asks for a folder: choose
    the one your projects live in. It creates `.handoff/tasks` inside and
    watches it.
@@ -170,6 +174,78 @@ flutter run -d macos -t lib/main_dev.dart \
   about **that item only**. `claude` and `codex` are supported today;
   anything else falls back to `claude`.
 
+## In the terminal
+
+`handoff` is the same inbox as a terminal app: one self-contained binary
+for macOS, Linux and Windows, no Flutter or Dart needed to run it. It reads
+and writes the task files with the very same code as the desktop app
+([`packages/handoff_core`](packages/handoff_core)), so both can be open on
+the same folder at once.
+
+```
+ ⇄ Handoff  ·  example                                         4 open   ? Help
+ Projects               │  Open 4   Done 2                  │  ▪ acme/api
+                        │                                   │
+▌ All projects        4 │▌ Rate limiting for the public API │  Rate limiting for the public API
+  acme/api            2 │▌ ● claude  ·  acme/api     29 Sep │  ● claude  ·  29 Sep 2026, 15:20
+  acme/web            1 │▌ ━━━━━━━━━──────────────────  1/4 │
+  docs                1 │                                   │  [d] Mark done   [a] Connect to agent
+                        │  Dark mode for the settings page  │  [e] Edit   [o] Open file   [f] Show in Finder
+                        │  ● gemini  ·  acme/web     29 Sep │
+                        │  ─────────────────────────── 0/2  │  ▍ Expected from you          1/4 done
+                        │                                   │  1 [✓] Review PR #212 (feat/rate-limiting)
+                        │                                   │▌ 2 [ ] Apply the migration to staging
+```
+
+**Install.** Download `handoff-<version>-<platform>` from
+[Releases](https://github.com/bzkrterdm/handoff/releases) (`macos-arm64`,
+`linux-x64`, `windows-x64`), unpack it and put `handoff` (`handoff.exe`)
+on your `PATH`. Or build it with Dart 3.12+:
+
+```bash
+cd tui
+dart pub get
+dart compile exe bin/handoff.dart -o handoff
+```
+
+**Run.** `handoff` opens the folder you used last, or asks for one (a
+folder browser; `/` lets you type a path). `handoff <folder>` picks a
+workspace directly, exactly like choosing it in the app.
+
+| Key | Does |
+|-----|------|
+| `↑` `↓` / `j` `k` | Move in the pane |
+| `Tab` / `←` `→` / `h` `l` | Switch between projects, list and details |
+| `Enter` | Go into the selected project / task, tick in the details |
+| `Space` | Tick the checklist item under the cursor |
+| `1`–`9` | Tick that item from anywhere |
+| `t` | Open ↔ Done list |
+| `d` / `u` | Mark done / reopen (asks first) |
+| `a` | Connect to the task's agent |
+| `i` | Ask the agent about the item under the cursor only |
+| `e` | Edit the task file in `$EDITOR` |
+| `o` / `f` | Open the file in its app / show it in the file manager |
+| `w` / `W` | Choose / open the workspace folder |
+| `r` | Refresh (the folder is watched anyway) |
+| `,` | Language (system, English, Türkçe) and appearance (system, light, dark) |
+| `?` / `q` | Help / quit |
+
+Everything the desktop app does is here; what differs is where it happens:
+
+- **Connect to agent** starts the agent in *this* terminal, in the task's
+  folder, with the same English first message and `--resume` session;
+  Handoff comes back when you leave the agent. Inside tmux it opens a new
+  tmux window instead, so the inbox stays on screen.
+- **The Dock badge** becomes the window title: `Handoff (3)`.
+- **Settings** live in `~/.config/handoff/tui.json` (`$XDG_CONFIG_HOME`
+  respected; `%APPDATA%\handoff\tui.json` on Windows), not in the desktop
+  app's preferences, so pick the folder once in each.
+- **Appearance "system"** uses your terminal's own colours; light and dark
+  paint their own background.
+- The window splits like the desktop app when it is wide enough, shows the
+  list and the details when it is medium, and one pane at a time when it is
+  narrow (`Esc` goes back).
+
 ## The task file
 
 ```markdown
@@ -222,21 +298,28 @@ reads instructions from the repository.
 dart format .
 flutter analyze
 flutter test
+(cd packages/handoff_core && dart test)
+(cd tui && dart analyze && dart test)
 ```
 
-That is the whole gate, and what CI runs; the app is not built in CI.
+That is the whole gate, and what CI runs (the terminal app's tests on
+macOS, Linux and Windows); the desktop app is not built in CI.
 The rules of the codebase are in [AGENTS.md](AGENTS.md), the architecture
 in [docs/architecture.md](docs/architecture.md) and the task file's mapping
 to the model in [docs/data-model.md](docs/data-model.md).
 
 `lib/stack/` is a small clean-architecture stack (base classes, DI,
-routing, theming, localization); `lib/features/tasks/` is the app. The task store is one interface
+routing, theming, localization); `lib/features/tasks/` is the app. The
+task format and the folder store are plain Dart in
+[`packages/handoff_core`](packages/handoff_core), shared by the desktop app
+and the terminal app ([`tui/`](tui)). The task store is one interface
 (`TaskDataSource`); the markdown folder is its only implementation today,
-and a remote one can be added without touching the UI.
+and a remote one can be added without touching either UI.
 
 ## Roadmap
 
-- Keyboard: ↑↓ through tasks, space to tick, ⌘R to refresh.
+- Keyboard in the desktop app (the terminal app has it): ↑↓ through tasks,
+  space to tick, ⌘R to refresh.
 - Search and filters (agent, date).
 - More agents for "Connect to agent" (Gemini CLI, …).
 - An optional remote store, so the inbox follows you across machines.

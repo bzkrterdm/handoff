@@ -1,8 +1,9 @@
 name: release
 
-# Builds the macOS app for a version tag and attaches it to the GitHub
-# release. The app is not code signed: on first launch, right-click it and
-# choose Open, or clear the quarantine flag (see the README).
+# Builds the macOS app and the terminal app (macOS, Linux, Windows) for a
+# version tag and attaches them to the GitHub release. Nothing is code
+# signed: on first launch of the macOS app, right-click it and choose Open,
+# or clear the quarantine flag (see the README).
 on:
   push:
     tags: ['v*']
@@ -36,3 +37,48 @@ jobs:
         with:
           files: build/macos/Build/Products/Release/Handoff-*.zip
           generate_release_notes: true
+
+  terminal:
+    name: build & attach handoff (${{ matrix.name }})
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos-arm64
+            binary: handoff
+          - os: ubuntu-latest
+            name: linux-x64
+            binary: handoff
+          - os: windows-latest
+            name: windows-x64
+            binary: handoff.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - run: dart pub get
+        working-directory: tui
+
+      - run: dart compile exe bin/handoff.dart -o ${{ matrix.binary }}
+        working-directory: tui
+
+      - name: Pack (tar.gz)
+        if: runner.os != 'Windows'
+        working-directory: tui
+        run: tar -czf "handoff-${GITHUB_REF_NAME}-${{ matrix.name }}.tar.gz" handoff
+
+      - name: Pack (zip)
+        if: runner.os == 'Windows'
+        working-directory: tui
+        shell: pwsh
+        run: Compress-Archive -Path handoff.exe -DestinationPath "handoff-$env:GITHUB_REF_NAME-${{ matrix.name }}.zip"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            tui/handoff-*.tar.gz
+            tui/handoff-*.zip

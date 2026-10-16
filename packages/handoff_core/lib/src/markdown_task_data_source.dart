@@ -1,0 +1,397 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:watcher/watcher.dart';
+
+import 'task_data_source.dart';
+import 'task_markdown_parser.dart';
+import 'task_model.dart';
+import 'workspace_layout.dart';
+import 'workspace_settings.dart';
+
+/// Where the store reports what it skipped (an unreadable file or folder,
+/// a watcher failure). The desktop app hands its logger in; the terminal app
+/// keeps a short in-memory log.
+typedef TaskStoreLog = void Function(String message);
+
+/// The local store: one markdown file per task under the workspace's task
+/// folder, grouped in sub folders that mirror the project folders
+/// (`<workspace>/acme/web/<id>.md`).
+///
+/// The folder is the source of truth. Agents write files into it, Obsidian
+/// may edit them, this app ticks boxes and closes tasks; a directory watcher
+/// turns any of those into a [changes] event.
+///
+/// Paths are built with `package:path`, so the same store runs on macOS,
+/// Linux and Windows. Project keys always use `/` (`acme/web`), whatever the
+/// platform's separator, because they are written into task files.
+class MarkdownTaskDataSource implements TaskDataSource {
+  MarkdownTaskDataSource(
+    this._settings,
+    this._defaultDirectory, [
+    TaskStoreLog? log,
+  ]) : _log = log ?? _ignore;
+
+  /// Files that are not tasks even though they sit in the folder.
+  static const Set<String> _ignoredNames = {'readme.md', 'index.md'};
+
+  /// Dependency and build output folders: full of markdown, never tasks.
+  static const Set<String> _skippedDirectories = {
+    'node_modules',
+    'build',
+    'dist',
+    'vendor',
+    'Pods',
+    'target',
+    'venv',
+  };
+
+  /// How many folder levels [readAll] descends below the task folder.
+  static const int _readDepth = 8;
+
+  /// How many folder levels below a picked folder are searched for tasks.
+  static const int _probeDepth = 4;
+
+  /// Quiet period after the last file event before listeners are told, so a
+  /// burst of writes (editor save, agent writing two files) reloads once.
+  static const Duration _debounce = Duration(milliseconds: 250);
+
+  final WorkspaceSettings _settings;
+  final String _defaultDirectory;
+  final TaskStoreLog _log;
+
+  /// Task id → absolute file path, filled by [readAll].
+  final Map<String, String> _paths = {};
+
+  /// Numbers the reads, so a slow read of a folder that has since been
+  /// replaced cannot overwrite [_paths] with the old folder's files.
+  int _reads = 0;
+
+  StreamController<void>? _changes;
+  StreamSubscription<WatchEvent>? _watch;
+  Timer? _debounceTimer;
+  String? _watchedDirectory;
+
+  @override
+  Future<String> get location async {
+    return await _settings.tasksDirectory() ?? _defaultDirectory;
+  }
+
+  @override
+  Future<void> setLocation(String location) async {
+    final directory = resolveTasksDirectory(location);
+    await Directory(directory).create(recursive: true);
+    await _settings.setTasksDirectory(directory);
+    await _restartWatcher(directory);
+    _changes?.add(null);
+  }
+
+  @override
+  Future<List<TaskModel>> readAll() async {
+    final directory = await location;
+    if (directory.isEmpty) {
+      throw const FileSystemException('No workspace folder chosen yet');
+    }
+    final root = Directory(directory);
+    if (!root.existsSync()) {
+      throw FileSystemException('Task folder does not exist', directory);
+    }
+    if (_watchedDirectory != directory && _changes != null) {
+      await _restartWatcher(directory);
+    }
+
+    // Inside `.handoff/tasks` / `_hub/tasks` every markdown file is a task.
+    // Anywhere else (a folder that was picked before task folders existed) a
+    // file must carry task front matter, or a repository's docs would show up
+    // as tasks.
+    final strict = !_isTaskFolder(directory);
+    final read = ++_reads;
+    final models = <TaskModel>[];
+    final paths = <String, String>{};
+    for (final entity in await _markdownFiles(root)) {
+      final id = _idOf(entity);
+      try {
+        final content = await entity.readAsString();
+        if (strict && !TaskMarkdownParser.isTask(content)) continue;
+
+        final model = _resolveCwd(
+          root,
+          TaskMarkdownParser.parse(
+            content,
+            id: id,
+            fallbackProject: _projectOf(root, entity),
+            location: entity.path,
+          ),
+        );
+        paths[model.id] = entity.path;
+        models.add(model);
+      } on Exception catch (error) {
+        // A malformed file is skipped rather than hiding every other task.
+        _log('Skipping unreadable task file: ${entity.path} ($error)');
+      }
+    }
+    if (read == _reads) {
+      _paths
+        ..clear()
+        ..addAll(paths);
+    }
+
+    return models;
+  }
+
+  @override
+  Stream<void> get changes {
+    final controller = _changes ??= StreamController<void>.broadcast(
+      onListen: () async => _restartWatcher(await location),
+    );
+
+    return controller.stream;
+  }
+
+  @override
+  Future<TaskModel> setActionDone({
+    required String id,
+    required int index,
+    required bool isDone,
+  }) {
+    return _rewrite(
+      id,
+      (content) => TaskMarkdownParser.withActionDone(
+        content,
+        index: index,
+        isDone: isDone,
+      ),
+    );
+  }
+
+  @override
+  Future<TaskModel> setStatus({required String id, required String status}) {
+    final closedAt = status == 'done' ? DateTime.now() : null;
+
+    return _rewrite(
+      id,
+      (content) => TaskMarkdownParser.withStatus(
+        content,
+        status: status,
+        closedAt: closedAt,
+      ),
+    );
+  }
+
+  @override
+  Future<void> dispose() async {
+    _debounceTimer?.cancel();
+    await _watch?.cancel();
+    _watch = null;
+    _watchedDirectory = null;
+    await _changes?.close();
+    _changes = null;
+  }
+
+  // Helpers
+  Future<void> _restartWatcher(String directory) async {
+    await _watch?.cancel();
+    _watch = null;
+    _watchedDirectory = directory;
+    if (!Directory(directory).existsSync()) return;
+
+    _watch = DirectoryWatcher(directory).events.listen((_) {
+      _debounceTimer?.cancel();
+      _debounceTimer = Timer(_debounce, () => _changes?.add(null));
+    }, onError: (Object error) => _log('Task folder watcher failed: $error'));
+  }
+
+  Future<TaskModel> _rewrite(
+    String id,
+    String Function(String content) edit,
+  ) async {
+    final path = _paths[id];
+    if (path == null) {
+      throw StateError('Unknown task id: $id');
+    }
+    final file = File(path);
+    final edited = edit(await file.readAsString());
+    await file.writeAsString(edited);
+    final root = Directory(await location);
+
+    return _resolveCwd(
+      root,
+      TaskMarkdownParser.parse(
+        edited,
+        id: _idOf(file),
+        fallbackProject: _projectOf(root, file),
+        location: path,
+      ),
+    );
+  }
+
+  /// Turns the task's relative `cwd` (or its project key) into an absolute
+  /// folder under the workspace root, so "connect to the agent" starts in
+  /// the right place. Falls back to the workspace root when the folder does
+  /// not exist.
+  TaskModel _resolveCwd(Directory root, TaskModel model) {
+    final workspaceRoot = workspaceRootOf(root.absolute.path);
+    final relative = model.cwd ?? model.project;
+    final candidate = relative.isEmpty
+        ? workspaceRoot
+        : p.joinAll([workspaceRoot, ...relative.split('/')]);
+    final cwd = Directory(candidate).existsSync() ? candidate : workspaceRoot;
+
+    return TaskModel(
+      id: model.id,
+      project: model.project,
+      title: model.title,
+      agent: model.agent,
+      createdAt: model.createdAt,
+      closedAt: model.closedAt,
+      status: model.status,
+      related: model.related,
+      summary: model.summary,
+      info: model.info,
+      actions: model.actions,
+      location: model.location,
+      cwd: cwd,
+      sessionId: model.sessionId,
+    );
+  }
+
+  /// See [WorkspaceLayout.taskFolderNames].
+  static const List<String> taskFolderNames = WorkspaceLayout.taskFolderNames;
+
+  /// See [WorkspaceLayout.rootOf].
+  static String workspaceRootOf(String tasksDirectory) =>
+      WorkspaceLayout.rootOf(tasksDirectory);
+
+  /// The task folder for a folder the user picked, which may be a workspace
+  /// root or the task folder itself: a known task folder name, or a folder
+  /// that already has a task folder below it, or a folder that already holds
+  /// task files (front matter, not just any `.md`), is taken as is; any other
+  /// folder is a fresh workspace and gets `.handoff/tasks` (created by
+  /// [setLocation]).
+  static String resolveTasksDirectory(String picked) {
+    final path = WorkspaceLayout.trimSlash(picked);
+    if (_isTaskFolder(path)) return path;
+    for (final name in taskFolderNames) {
+      final candidate = _join(path, name);
+      if (Directory(candidate).existsSync()) return candidate;
+    }
+    if (_holdsTasks(Directory(path))) return path;
+
+    return _join(path, taskFolderNames.first);
+  }
+
+  /// Whether [directory] already holds at least one real task file. A plain
+  /// `.md` does not count: a code repository or notes folder is full of them
+  /// and none is a task. The walk skips hidden, `_` and dependency folders
+  /// and stops below [_probeDepth], so picking a big folder stays cheap.
+  static bool _holdsTasks(Directory directory, [int depth = 0]) {
+    if (depth > _probeDepth) return false;
+
+    try {
+      for (final entity in directory.listSync(followLinks: false)) {
+        final name = _nameOf(entity);
+        if (_isSkippedDirectory(name)) continue;
+        if (entity is Directory) {
+          if (_holdsTasks(entity, depth + 1)) return true;
+        } else if (entity is File &&
+            name.toLowerCase().endsWith('.md') &&
+            !_ignoredNames.contains(name.toLowerCase()) &&
+            TaskMarkdownParser.isTask(entity.readAsStringSync())) {
+          return true;
+        }
+      }
+    } on Exception {
+      // An unreadable folder or file is not a task folder.
+    }
+
+    return false;
+  }
+
+  static bool _isTaskFolder(String path) => WorkspaceLayout.isTaskFolder(path);
+
+  /// [path] joined with a `/`-written relative [name] in the platform's
+  /// separators.
+  static String _join(String path, String name) =>
+      p.joinAll([path, ...name.split('/')]);
+
+  static void _ignore(String message) {}
+
+  /// Hidden, `_` (templates, `.obsidian`) and dependency folders hold no
+  /// tasks; skipping them keeps a big folder from being walked for nothing.
+  static bool _isSkippedDirectory(String name) {
+    return name.startsWith('.') ||
+        name.startsWith('_') ||
+        _skippedDirectories.contains(name);
+  }
+
+  static String _nameOf(FileSystemEntity entity) {
+    return entity.uri.pathSegments.lastWhere(
+      (segment) => segment.isNotEmpty,
+      orElse: () => '',
+    );
+  }
+
+  /// Every markdown file below [root] that could be a task, found without
+  /// entering skipped folders. An unreadable sub folder is skipped; an
+  /// unreadable [root] is an error the owner has to see.
+  Future<List<File>> _markdownFiles(Directory root) async {
+    final files = <File>[];
+    final pending = <(Directory, int)>[(root, 0)];
+    while (pending.isNotEmpty) {
+      final (directory, depth) = pending.removeLast();
+      try {
+        await for (final entity in directory.list()) {
+          if (entity is Directory) {
+            if (depth < _readDepth && !_isSkippedDirectory(_nameOf(entity))) {
+              pending.add((entity, depth + 1));
+            }
+          } else if (entity is File && _isTaskFile(root, entity)) {
+            files.add(entity);
+          }
+        }
+      } on FileSystemException catch (error) {
+        if (depth == 0) rethrow;
+        _log('Skipping unreadable folder: ${directory.path} ($error)');
+      }
+    }
+
+    return files;
+  }
+
+  bool _isTaskFile(Directory root, File file) {
+    final name = file.uri.pathSegments.last;
+    if (!name.toLowerCase().endsWith('.md')) return false;
+    if (_ignoredNames.contains(name.toLowerCase())) return false;
+    // `_templates/`, `.obsidian/` and the like are not task folders.
+    final relative = _relativePath(root, file);
+
+    return !relative
+        .split('/')
+        .any((segment) => segment.startsWith('_') || segment.startsWith('.'));
+  }
+
+  String _idOf(File file) {
+    final name = file.uri.pathSegments.last;
+
+    return name.substring(0, name.length - '.md'.length);
+  }
+
+  /// The folder path below the task root, i.e. the project key.
+  String _projectOf(Directory root, File file) {
+    final segments = _relativePath(root, file).split('/')..removeLast();
+
+    return segments.isEmpty ? '' : segments.join('/');
+  }
+
+  /// [file]'s path below [root], always with `/` separators.
+  String _relativePath(Directory root, File file) {
+    final rootPath = p.normalize(root.absolute.path);
+    final path = p.normalize(file.absolute.path);
+    if (!p.isWithin(rootPath, path)) return path.replaceAll(r'\', '/');
+
+    return p.split(p.relative(path, from: rootPath)).join('/');
+  }
+
+  // - Helpers
+}
