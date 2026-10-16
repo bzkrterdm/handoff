@@ -25,7 +25,13 @@ abstract class TaskMarkdownParser {
 
   static final RegExp _frontMatterDelimiter = RegExp(r'^---\s*$');
   static final RegExp _heading = RegExp(r'^##\s+(.+?)\s*$');
-  static final RegExp _checkbox = RegExp(r'^(\s*[-*]\s+\[)( |x|X)(\]\s?)(.*)$');
+
+  /// A checklist line. The text stops before a trailing `\r`: a file saved
+  /// with Windows line endings (CRLF) splits into lines that end in one, and
+  /// `.` does not match it.
+  static final RegExp _checkbox = RegExp(
+    r'^(\s*[-*]\s+\[)( |x|X)(\]\s?)(.*?)(\r?)$',
+  );
 
   /// Whether [content] is a task written by this protocol rather than any
   /// markdown note: a front matter with a `status` and an `agent` or
@@ -103,7 +109,7 @@ abstract class TaskMarkdownParser {
       if (seen == index) {
         lines[i] =
             '${box.group(1)}${isDone ? 'x' : ' '}${box.group(3)}'
-            '${box.group(4)}';
+            '${box.group(4)}${box.group(5)}';
         return lines.join('\n');
       }
       seen++;
@@ -121,31 +127,28 @@ abstract class TaskMarkdownParser {
   }) {
     final lines = content.split('\n');
     final frontMatterEnd = _frontMatterEnd(lines);
+    // Lines written here keep the file's line endings (CRLF on Windows).
+    final cr = content.contains('\r\n') ? '\r' : '';
+    final statusLine = '$statusKey: $status$cr';
     final closedLine = closedAt == null
         ? null
-        : '$closedKey: ${closedAt.toIso8601String()}';
+        : '$closedKey: ${closedAt.toIso8601String()}$cr';
 
     if (frontMatterEnd == null) {
-      return [
-        '---',
-        '$statusKey: $status',
-        ?closedLine,
-        '---',
-        ...lines,
-      ].join('\n');
+      return ['---$cr', statusLine, ?closedLine, '---$cr', ...lines].join('\n');
     }
 
     final header = lines.sublist(1, frontMatterEnd)
       ..removeWhere(
         (line) => _isKey(line, statusKey) || _isKey(line, closedKey),
       )
-      ..add('$statusKey: $status');
+      ..add(statusLine);
     if (closedLine != null) header.add(closedLine);
 
     return [
-      '---',
+      lines.first,
       ...header,
-      '---',
+      lines[frontMatterEnd],
       ...lines.sublist(frontMatterEnd + 1),
     ].join('\n');
   }
