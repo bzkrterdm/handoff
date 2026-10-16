@@ -197,20 +197,91 @@ the same folder at once.
                         │                                   │▌ 2 [ ] Apply the migration to staging
 ```
 
-**Install.** Download `handoff-<version>-<platform>` from
-[Releases](https://github.com/bzkrterdm/handoff/releases) (`macos-arm64`,
-`linux-x64`, `windows-x64`), unpack it and put `handoff` (`handoff.exe`)
-on your `PATH`. Or build it with Dart 3.12+:
+### Install the terminal app
+
+Every release carries a ready binary for three platforms. They are not
+code signed; they have no dependencies and nothing else to install.
+
+| Platform | File |
+|----------|------|
+| macOS, Apple silicon | `handoff-macos-arm64.tar.gz` |
+| Linux, x86-64 | `handoff-linux-x64.tar.gz` |
+| Windows, x86-64 | `handoff-windows-x64.zip` |
+
+**macOS**
 
 ```bash
-cd tui
-dart pub get
-dart compile exe bin/handoff.dart -o handoff
+curl -fsSL https://github.com/bzkrterdm/handoff/releases/latest/download/handoff-macos-arm64.tar.gz | tar -xz
+sudo mv handoff /usr/local/bin/
 ```
 
-**Run.** `handoff` opens the folder you used last, or asks for one (a
-folder browser; `/` lets you type a path). `handoff <folder>` picks a
-workspace directly, exactly like choosing it in the app.
+Downloaded with `curl` the binary runs right away. If you download it in
+a browser instead, macOS quarantines it; clear the flag once with
+`xattr -d com.apple.quarantine /usr/local/bin/handoff`. Intel Macs: build
+from source (below).
+
+**Linux**
+
+```bash
+curl -fsSL https://github.com/bzkrterdm/handoff/releases/latest/download/handoff-linux-x64.tar.gz | tar -xz
+mkdir -p ~/.local/bin && mv handoff ~/.local/bin/
+```
+
+`~/.local/bin` has to be on your `PATH` (it is on most distributions).
+"Open file" and "Show in folder" use `xdg-open`.
+
+**Windows** (PowerShell)
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\handoff"
+Invoke-WebRequest https://github.com/bzkrterdm/handoff/releases/latest/download/handoff-windows-x64.zip -OutFile "$env:TEMP\handoff.zip"
+Expand-Archive "$env:TEMP\handoff.zip" -DestinationPath $dir -Force
+[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$dir", 'User')
+```
+
+Open a new terminal afterwards so the `PATH` change applies. Windows
+Terminal is recommended. SmartScreen may warn about an unsigned file the
+first time; choose *More info → Run anyway*.
+
+**From source** (any platform, Dart 3.12 or newer, or the Dart that comes
+with Flutter):
+
+```bash
+git clone https://github.com/bzkrterdm/handoff.git
+cd handoff/tui
+dart pub get
+dart compile exe bin/handoff.dart -o handoff   # handoff.exe on Windows
+```
+
+Or run it without compiling: `dart run bin/handoff.dart`.
+
+**Update** by repeating the download; **uninstall** by deleting the binary
+and, if you like, the settings file (see below).
+
+### Run it
+
+```bash
+handoff                  # the folder you used last, or the welcome screen
+handoff ~/code/acme      # a workspace: .handoff/tasks is created inside
+handoff ~/vault/_hub/tasks   # or point at a task folder directly
+handoff --help
+```
+
+Without a folder, the first start shows a welcome screen and a folder
+browser (`Enter` opens a folder, `←` goes up, `/` lets you type a path
+with `Tab` completion, `Tab` shows hidden folders; folders that already
+hold tasks are marked `◆ tasks`). The choice is remembered. Try it on the
+bundled example without touching your own files:
+
+```bash
+cp -R example /tmp/handoff-example && handoff /tmp/handoff-example
+```
+
+You need a terminal of at least 40×10 that shows UTF-8; colours are
+truecolour where the terminal says so (`COLORTERM`), 256 colours
+elsewhere, and none with `NO_COLOR` set.
+
+### Keys
 
 | Key | Does |
 |-----|------|
@@ -230,6 +301,8 @@ workspace directly, exactly like choosing it in the app.
 | `,` | Language (system, English, Türkçe) and appearance (system, light, dark) |
 | `?` / `q` | Help / quit |
 
+### Compared with the desktop app
+
 Everything the desktop app does is here; what differs is where it happens:
 
 - **Connect to agent** starts the agent in *this* terminal, in the task's
@@ -237,14 +310,35 @@ Everything the desktop app does is here; what differs is where it happens:
   Handoff comes back when you leave the agent. Inside tmux it opens a new
   tmux window instead, so the inbox stays on screen.
 - **The Dock badge** becomes the window title: `Handoff (3)`.
-- **Settings** live in `~/.config/handoff/tui.json` (`$XDG_CONFIG_HOME`
-  respected; `%APPDATA%\handoff\tui.json` on Windows), not in the desktop
-  app's preferences, so pick the folder once in each.
+- **Settings** live in their own file, not in the desktop app's
+  preferences, so pick the folder once in each.
 - **Appearance "system"** uses your terminal's own colours; light and dark
   paint their own background.
 - The window splits like the desktop app when it is wide enough, shows the
   list and the details when it is medium, and one pane at a time when it is
   narrow (`Esc` goes back).
+
+### Configuration
+
+| What | Where |
+|------|-------|
+| Settings (folder, language, appearance) | `~/.config/handoff/tui.json`, or `$XDG_CONFIG_HOME/handoff/tui.json`; `%APPDATA%\handoff\tui.json` on Windows. `--config <file>` uses another file. |
+| Editor for `e` | `$VISUAL`, then `$EDITOR`; otherwise `nano` or `vi` (Notepad on Windows) |
+| Folder to start with when none was chosen | `HANDOFF_TASKS_DIR` |
+| Agents for `a` / `i` | `claude` or `codex` on your `PATH`; other names fall back to `claude` |
+
+### Troubleshooting
+
+- **"claude is not installed or not on PATH".** Install the agent the task
+  names (the task's `agent:` line), or start the session yourself; the task
+  file path is in the details.
+- **Arrow keys do nothing (old Windows consoles).** Use `j` `k` `h` `l`;
+  every action also has a letter.
+- **"macOS blocked access to this folder".** Desktop, Documents and
+  external drives need your *terminal app* to be allowed under System
+  Settings → Privacy & Security → Files and Folders.
+- **Odd characters or broken lines.** Use a UTF-8 locale and a font with
+  box-drawing characters (any modern terminal default does).
 
 ## The task file
 

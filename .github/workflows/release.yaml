@@ -66,16 +66,18 @@ jobs:
       - run: dart compile exe bin/handoff.dart -o ${{ matrix.binary }}
         working-directory: tui
 
+      # No version in the file name, so README links can point at
+      # releases/latest/download/<file>.
       - name: Pack (tar.gz)
         if: runner.os != 'Windows'
         working-directory: tui
-        run: tar -czf "handoff-${GITHUB_REF_NAME}-${{ matrix.name }}.tar.gz" handoff
+        run: tar -czf "handoff-${{ matrix.name }}.tar.gz" handoff
 
       - name: Pack (zip)
         if: runner.os == 'Windows'
         working-directory: tui
         shell: pwsh
-        run: Compress-Archive -Path handoff.exe -DestinationPath "handoff-$env:GITHUB_REF_NAME-${{ matrix.name }}.zip"
+        run: Compress-Archive -Path handoff.exe -DestinationPath "handoff-${{ matrix.name }}.zip"
 
       - uses: softprops/action-gh-release@v2
         with:
