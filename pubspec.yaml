@@ -53,10 +53,10 @@ dependencies:
   permission_handler: ^13.0.2
   android_path_provider: ^0.3.2
   pointycastle: ^4.0.0
-  watcher: ^1.2.1
-  yaml: ^3.1.4
   file_selector: ^1.1.0
   shared_preferences: ^2.5.5
+  handoff_core:
+    path: packages/handoff_core
 dev_dependencies:
   flutter_test:
     sdk: flutter

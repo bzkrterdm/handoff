@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:handoff/features/tasks/data/data_sources/markdown_task_data_source.dart';
 import 'package:handoff/features/tasks/data/data_sources/workspace_settings.dart';
-import 'package:handoff/stack/core/logging/logger.dart';
 
 import '../../../../fixtures/task_fixtures.dart';
 
@@ -17,7 +16,7 @@ void main() {
     root = await Directory(
       '${parent.path}/.handoff/tasks',
     ).create(recursive: true);
-    source = MarkdownTaskDataSource(_MemorySettings(), root.path, LoggerImpl());
+    source = MarkdownTaskDataSource(_MemorySettings(), root.path);
     await _write(root, 'README.md', '# not a task');
     await _write(root, '_templates/task.md', '# template, not a task');
     await _write(
@@ -72,11 +71,7 @@ void main() {
       await _write(raw, 'web/node_modules/pkg/task.md', sampleTaskFile);
       await _write(raw, 'web/build/out/task.md', sampleTaskFile);
       await _write(raw, 'web/.git/notes.md', sampleTaskFile);
-      rawSource = MarkdownTaskDataSource(
-        _MemorySettings(),
-        raw.path,
-        LoggerImpl(),
-      );
+      rawSource = MarkdownTaskDataSource(_MemorySettings(), raw.path);
     });
 
     tearDown(() async {
@@ -114,7 +109,7 @@ void main() {
       }
       await _write(a, 'b/.handoff/tasks/b/mine.md', sampleTaskFile);
       final settings = _MemorySettings();
-      final picking = MarkdownTaskDataSource(settings, '', LoggerImpl());
+      final picking = MarkdownTaskDataSource(settings, '');
       addTearDown(picking.dispose);
 
       await picking.setLocation(a.path);
@@ -137,11 +132,7 @@ void main() {
     await Directory('${ws.path}/acme/api').create(recursive: true);
     await _write(tasksDir, 'acme/api/a.md', sampleTaskFile);
     await _write(tasksDir, 'acme/web/b.md', '# b\n');
-    final wsSource = MarkdownTaskDataSource(
-      _MemorySettings(),
-      tasksDir.path,
-      LoggerImpl(),
-    );
+    final wsSource = MarkdownTaskDataSource(_MemorySettings(), tasksDir.path);
     addTearDown(wsSource.dispose);
 
     final byId = {for (final m in await wsSource.readAll()) m.id: m};
@@ -159,7 +150,6 @@ void main() {
     final missing = MarkdownTaskDataSource(
       _MemorySettings(),
       '${root.path}/nope',
-      LoggerImpl(),
     );
 
     expect(missing.readAll, throwsA(isA<FileSystemException>()));
@@ -214,7 +204,7 @@ void main() {
     final other = Directory('${otherParent.path}/.handoff/tasks');
     await _write(other, 'p/only.md', '# only\n');
     final settings = _MemorySettings()..path = other.path;
-    final switching = MarkdownTaskDataSource(settings, root.path, LoggerImpl());
+    final switching = MarkdownTaskDataSource(settings, root.path);
     addTearDown(switching.dispose);
 
     expect(await switching.location, other.path);
@@ -226,7 +216,7 @@ void main() {
   });
 
   test('an empty location is a first start, not a missing folder', () async {
-    final fresh = MarkdownTaskDataSource(_MemorySettings(), '', LoggerImpl());
+    final fresh = MarkdownTaskDataSource(_MemorySettings(), '');
     addTearDown(fresh.dispose);
 
     await expectLater(
@@ -292,7 +282,7 @@ void main() {
     test('gives a fresh workspace .handoff/tasks and creates it', () async {
       await Directory('${ws.path}/api/src').create(recursive: true);
       final settings = _MemorySettings();
-      final fresh = MarkdownTaskDataSource(settings, '', LoggerImpl());
+      final fresh = MarkdownTaskDataSource(settings, '');
       addTearDown(fresh.dispose);
 
       await fresh.setLocation(ws.path);

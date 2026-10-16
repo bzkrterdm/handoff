@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:handoff/features/tasks/data/data_sources/task_markdown_parser.dart';
+import 'package:handoff/features/tasks/data/models/task_model.dart';
 
 import '../../../../fixtures/task_fixtures.dart';
 

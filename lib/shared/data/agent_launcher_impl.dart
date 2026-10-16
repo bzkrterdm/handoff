@@ -1,7 +1,11 @@
 import 'dart:io';
 
+import 'package:handoff_core/handoff_core.dart';
+
 import '../../stack/core/logging/logger.dart';
 import '../domain/agent_launcher.dart';
+
+export 'package:handoff_core/handoff_core.dart' show AgentCommand;
 
 /// Builds the shell line for an [AgentLaunch] and types it into a new
 /// iTerm window (Terminal.app when iTerm is not installed). AppleScript
@@ -49,31 +53,4 @@ on run argv
 end run''';
 
   // - Helpers
-}
-
-/// The command line per agent — pure, so it is unit tested without a
-/// terminal.
-abstract class AgentCommand {
-  /// `cd '<dir>' && <agent> [resume] '<prompt>'`.
-  static String shellLine(AgentLaunch launch) {
-    final dir = quote(launch.workingDirectory);
-    final prompt = quote(launch.prompt);
-    final session = launch.sessionId;
-
-    final command = switch (launch.agent.trim().toLowerCase()) {
-      'codex' =>
-        session == null
-            ? 'codex $prompt'
-            : 'codex resume ${quote(session)} $prompt',
-      _ =>
-        session == null
-            ? 'claude $prompt'
-            : 'claude --resume ${quote(session)} $prompt',
-    };
-
-    return 'cd $dir && $command';
-  }
-
-  /// Single-quotes [value] for POSIX shells.
-  static String quote(String value) => "'${value.replaceAll("'", r"'\''")}'";
 }

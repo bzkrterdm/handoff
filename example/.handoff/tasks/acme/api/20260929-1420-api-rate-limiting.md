@@ -4,10 +4,11 @@ project: acme/api
 title: Rate limiting for the public API
 agent: claude
 created: 2026-09-29T14:20:00+02:00
-status: open
 related: []
 cwd: acme/api
 session: 3f9c1b2e-0000-4000-8000-0f9c1b2e3d4a
+status: done
+closed: 2026-10-16T23:36:16.581838
 ---
 
 ## Done
@@ -24,6 +25,6 @@ session: 3f9c1b2e-0000-4000-8000-0f9c1b2e3d4a
 ## Actions
 
 - [x] Review PR #212 (`feat/rate-limiting`)
-- [ ] Apply the migration to staging: `pnpm db:migrate --env staging`
-- [ ] Decide the prod limits for the enterprise tier (I left them at the pro values)
-- [ ] Enable Redis persistence (AOF) on the prod instance before the release
+- [x] Apply the migration to staging: `pnpm db:migrate --env staging`
+- [x] Decide the prod limits for the enterprise tier (I left them at the pro values)
+- [x] Enable Redis persistence (AOF) on the prod instance before the release
